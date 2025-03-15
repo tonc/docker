@@ -1,6 +1,10 @@
 # 使用 CentOS 8 作为基础镜像
 FROM centos:8
 
+# 切换到可用的仓库源
+RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* && \
+    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+
 # 安装必要的软件包
 RUN dnf -y update && \
     dnf -y install epel-release && \
