@@ -1,0 +1,23 @@
+# 使用 CentOS 8 作为基础镜像
+FROM centos:8
+
+# 安装必要的软件包
+RUN dnf -y update && \
+    dnf -y install epel-release && \
+    dnf -y groupinstall "Xfce" && \
+    dnf -y install xrdp && \
+    dnf -y install xorgxrdp && \
+    dnf -y install tigervnc-server && \
+    dnf -y install firefox && \
+    dnf clean all
+
+# 设置 XRDP 服务
+RUN echo "xfce4-session" > /home/xrdp/.Xclients && \
+    chmod +x /home/xrdp/.Xclients && \
+    systemctl enable xrdp
+
+# 暴露 RDP 端口
+EXPOSE 3389
+
+# 启动 XRDP 服务
+CMD ["/usr/sbin/xrdp", "--nodaemon"]
