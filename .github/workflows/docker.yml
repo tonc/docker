@@ -28,6 +28,7 @@ jobs:
       uses: docker/build-push-action@v4
       with:
         context: .
+        file: ./Dockerfile_centos
         platforms: |
           linux/amd64
           linux/arm64
