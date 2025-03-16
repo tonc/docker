@@ -33,4 +33,4 @@ jobs:
           linux/amd64
         push: true
         tags: |
-          xkand/centos8:latest
+          xkand/robot:latest
