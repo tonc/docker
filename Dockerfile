@@ -19,7 +19,7 @@ RUN mkdir /home/screaming \
      && cd screaming_channels \
      && git checkout ches20 \
      && cd /home/screaming/screaming_channels/experiments/src/ \
-     && python2 setup.py develop
+     && python3 setup.py develop
 
 # Install firmware
 ENV NORDIC_SEMI_SDK=/home/screaming/screaming_channels/firmware/nRF5_SDK_14.2.0_17b948a/
