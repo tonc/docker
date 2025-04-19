@@ -1,80 +1,63 @@
-### 阶段 1: 构建环境 (Builder) —— 包含完整开发工具链
-FROM nvidia/cudagl:10.2-devel-ubuntu16.04 AS builder
+FROM ubuntu:18.04
+MAINTAINER Camurati Giovanni giovanni.camurati@eurecom.fr
+ENV DEBIAN_FRONTEND noninteractive
 
-# 元数据与基础配置
-ENV TZ=Asia/Shanghai \
-    DEBIAN_FRONTEND=noninteractive
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+# Prepare the system
+RUN apt-get update && apt-get install -yq \
+    git vim gnuradio python-pip gr-osmosdr \
+    minicom hackrf gqrx-sdr gr-iio \
+    xauth sudo wget unzip libiio0 libiio-utils \
+    udiskie gcc-arm-none-eabi \
+    python3-pip bluez && \
+    pip install setuptools && \
+    pip3 install gatt==0.2.7 pyzmq==17.1.2
 
-# 系统级依赖安装（合并APT操作）
-RUN apt-get update && apt-get install -y \
-    build-essential cmake git wget \
-    python3-pip python3-dev \
-    libglm-dev libsuitesparse-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Install screaming
+RUN mkdir /home/screaming \
+     && cd /home/screaming \
+     && git clone https://github.com/eurecom-s3/screaming_channels.git \
+     && cd screaming_channels \
+     && git checkout ches20 \
+     && cd /home/screaming/screaming_channels/experiments/src/ \
+     && python2 setup.py develop
 
-# 配置国内镜像源加速
-RUN sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list && \
-    pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+# Install firmware
+ENV NORDIC_SEMI_SDK=/home/screaming/screaming_channels/firmware/nRF5_SDK_14.2.0_17b948a/
 
-# ROS Kinetic 安装（使用清华镜像）
-RUN sh -c 'echo "deb http://mirrors.tuna.tsinghua.edu.cn/ros/ubuntu/ xenial main" > /etc/apt/sources.list.d/ros-latest.list' \
-    && apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 \
-    && apt-get update && apt-get install -y \
-    ros-kinetic-desktop-full \
-    ros-kinetic-moveit \
-    ros-kinetic-ros-control \
-    && rm -rf /var/lib/apt/lists/*
+RUN cd /home/screaming/screaming_channels/firmware/ \
+    && wget https://developer.nordicsemi.com/nRF5_SDK/nRF5_SDK_v14.x.x/nRF5_SDK_14.2.0_17b948a.zip \
+    && unzip nRF5_SDK_14.2.0_17b948a.zip \
+    && rm nRF5_SDK_14.2.0_17b948a.zip \
+    && cp boards.h nRF5_SDK_14.2.0_17b948a/components/boards/ \
+    && cp Makefile.posix nRF5_SDK_14.2.0_17b948a/components/toolchain/gcc \
+    && cp rblnano2.h  nRF5_SDK_14.2.0_17b948a/components/boards/
 
-# Python依赖安装（通过requirements.txt管理）
-COPY requirements.txt .
-RUN pip3 install -r requirements.txt
+# Install nordic tools
+RUN cd /home/screaming \
+    && wget https://www.nordicsemi.com/-/media/Software-and-other-downloads/Desktop-software/nRF-command-line-tools/sw/Versions-10-x-x/10-13-0/nRF-Command-Line-Tools_10_13_0_Linux64.zip \
+    && unzip nRF-Command-Line-Tools_10_13_0_Linux64.zip \
+    && cd nRF-Command-Line-Tools_10_13_0_Linux64 \
+    && tar -xvzf nRF-Command-Line-Tools_10_13_0_Linux-amd64.tar.gz \
+    && dpkg -i nRF-Command-Line-Tools_10_13_0_Linux-amd64.deb
 
-# 第三方库编译安装（Eigen/g2o/NLopt）
-RUN wget https://gitlab.com/libeigen/eigen/-/archive/3.3.7/eigen-3.3.7.tar.gz \
-    && tar -xzvf eigen-3.3.7.tar.gz \
-    && mkdir eigen-3.3.7/build && cd eigen-3.3.7/build \
-    && cmake .. && make install
+# Install python_hel
+RUN apt-get install -yq \
+    libntl-dev libgmp-dev \
+    && cd /home/screaming/ \
+    #&& git clone https://github.com/eurecom-s3/python-hel \
+    && git clone https://github.com/giocamurati/python_hel.git \
+    && cd python_hel \
+    && cd hel_wrapper \
+    && make AES_TYPE=aes_ni \
+    && make install \
+    && ldconfig \
+    && cd ../python_hel \
+    && python2 setup.py install
+    #&& make TYPE=aes_simple
 
-RUN git clone https://github.com/RainerKuemmerle/g2o /usr/local/g2o \
-    && cd /usr/local/g2o \
-    && mkdir build && cd build \
-    && cmake .. && make && make install
-
-RUN git clone https://github.com/stevengj/nlopt \
-    && cd nlopt && mkdir build && cd build \
-    && cmake .. && make && make install
-
-### 阶段 2: 运行时环境 (Runtime) —— 最小化镜像
-FROM nvidia/cudagl:10.2-runtime-ubuntu16.04
-
-# 从构建阶段复制编译结果
-COPY --from=builder /usr/local/include/eigen3 /usr/local/include/eigen3
-COPY --from=builder /usr/local/lib/libg2o* /usr/local/lib/
-COPY --from=builder /usr/local/lib/libnlopt* /usr/local/lib/
-
-# 系统运行时依赖
-RUN apt-get update && apt-get install -y \
-    python3-pip libglm-dev \
-    ros-kinetic-desktop-full \
-    ros-kinetic-moveit \
-    ros-kinetic-ros-control \
-    ros-kinetic-serial \
-    && rm -rf /var/lib/apt/lists/*
-
-# SSH 服务配置（安全增强版）
-ARG SSH_PORT=4399
-ARG SSH_PASSWORD=ChangeMe123!
-RUN apt-get update && apt-get install -y openssh-server \
-    && sed -i "s/#Port 22/Port $SSH_PORT/" /etc/ssh/sshd_config \
-    && sed -i "s/PermitRootLogin prohibit-password/PermitRootLogin yes/" /etc/ssh/sshd_config \
-    && echo "root:$SSH_PASSWORD" | chpasswd \
-    && mkdir -p /var/run/sshd
-
-# GUI 环境变量配置
-COPY entrypoint.sh /usr/local/bin/
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["/usr/sbin/sshd", "-D"]
-
-# 工作区初始化
-RUN mkdir -p /root/vscode-workspace/sign_language_robot_ws
+# Install screaming channels
+RUN useradd -ms /bin/bash screaming \
+    && echo "screaming:screaming" | chpasswd && adduser screaming sudo \
+    && chown -R screaming:screaming /home/screaming
+WORKDIR /home/screaming
+USER screaming
